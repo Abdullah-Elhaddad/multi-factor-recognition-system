@@ -1,0 +1,57 @@
+TeamB/
+│
+├── src/
+│   ├── backend.py              # Main Flask API server
+│   ├── capture_faces.py        # script for manual face capture
+│   ├── build_embeddings.py     # script for embedding generation
+│   ├── verify_face.py          # debug face verification script
+│
+├── frontend/
+│   ├── index.html              # Main MFA UI (Register + Login)
+│   └── congrats.html           # Success page after MFA completion
+│
+├── embeddings/
+│   ├── <username>_mean.npy     # Mean face embedding for user
+│   ├── <username>_all.npy      # All face embeddings for user
+│   └── <username>_voice.npy    # Voice embedding for user
+│
+├── data/
+│   ├── faces/
+│   │   ├── <username>/
+│   │   │    ├── img_001.jpg    # Captured face images
+│   │   │    ├── img_002.jpg
+│   │   │    └── ...            # User may have many images
+│   │   └── ...
+│   │
+│   ├── voices/
+│   │   ├── <username>.wav      # 16 KHz PCM WAV voice recording
+│   │   └── __probe.wav         # Temporary voice sample for verification
+│   │
+│   ├── pins.json               # JSON file mapping username → PIN
+│   │                           # Example:
+│   │                           # {
+│   │                           #   "haddad": "1234",
+│   │                           #   "mohammed": "9876"
+│   │                           # }
+│   └── ...
+│
+├── venv/                       # Python virtual environment
+│
+└── requirements.txt            # Project dependencies
+
+
+step to push: 
+git pull origin main
+git add . 
+git commit -m "message"
+git push origin main
+
+
+To do: 
+- Project structure & documentation (folder structure & comments in codes)
+- Readme file to contain: Title - short describtion - TOC - Reason for doing project - Features - Diagrams - setup instructions - example usage - Results - contributors. 
+- Flowchart 
+- Model architecture diagram 
+- UML Diagram 
+- performance charts 
+- Dataset and pre-trained model overview
