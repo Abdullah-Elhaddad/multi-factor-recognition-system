@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MFA Authentication — PIN + Face + Voice</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f6fa;
+      color: #2f3640;
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 20px;
+    }
+    h1, h2, h3 { text-align: center; }
+    video, canvas {
+      border: 2px solid #718093;
+      width: 480px;
+      margin: 10px auto;
+      display: block;
+      border-radius: 8px;
+    }
+    input {
+      width: 300px;
+      padding: 8px;
+      margin: 5px 0 10px 0;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+      display: block;
+    }
+    label {
+      font-weight: bold;
+      margin-top: 5px;
+      display: block;
+    }
+    button {
+      padding: 8px 12px;
+      margin: 5px;
+      background: #273c75;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button[disabled] {
+      background: #7f8fa6;
+      cursor: not-allowed;
+    }
+    .phrase-box {
+      background: #dcdde1;
+      padding: 8px;
+      border-radius: 5px;
+      width: 320px;
+      margin-top: 5px;
+      font-style: italic;
+    }
+    .center {
+      text-align: center;
+    }
+    .screen { display: none; }
+    .visible { display: block; }
+    .home-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin-top: 20px;
+      margin-bottom: 20px;
+    }
+    .counter {
+      font-weight: bold;
+      margin-top: -5px;
+      margin-bottom: 10px;
+    }
+    pre {
+      background: #dcdde1;
+      padding: 10px;
+      border-radius: 6px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+
+<body>
+
+<h1>Multi-Factor Authentication</h1>
+<h3>PIN → Face → Voice</h3>
+
+<!-- Shared camera -->
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas" style="display:none;"></canvas>
+
+<hr>
+
+<!--  HOME SCREEN  -->
+<div id="screen-home" class="screen visible">
+  <h2>Welcome</h2>
+  <div class="home-buttons">
+    <button onclick="showScreen('register')">Register</button>
+    <button onclick="showScreen('login')">Login</button>
+  </div>
+</div>
+
+<!--  REGISTERATION SCREEN  -->
+<div id="screen-register" class="screen">
+  <h2>Register New User</h2>
+  <div class="center">
+    <label for="reg-username">Username</label>
+    <input type="text" id="reg-username" placeholder="e.g. Haddad">
+
+    <label for="reg-pin">PIN</label>
+    <input type="password" id="reg-pin" placeholder="1234">
+
+    <h3>Face Registration</h3>
+    <button id="btn-reg-capture-face">Capture Face Photo</button>
+    <div class="counter">Captured photos: <span id="reg-face-count">0</span></div>
+
+    <h3>Voice Registration</h3>
+    <button id="btn-reg-gen-phrase">Generate Sentence</button>
+    <div class="phrase-box" id="reg-phrase-box">Your phrase will appear here</div>
+
+    <button id="btn-reg-start-voice">Start Recording</button>
+    <button id="btn-reg-stop-voice" disabled>Stop & Save Voice</button>
+
+    <br><br>
+    <button id="btn-reg-submit">Submit Registration</button>
+    <button onclick="backToHome()">Back</button>
+  </div>
+</div>
+
+<!--  LOGIN SCREEN  -->
+<div id="screen-login" class="screen">
+  <h2>Login</h2>
+  <div class="center">
+    <!-- Step 1: PIN -->
+    <h3>Step 1: Enter PIN</h3>
+    <label for="login-pin">PIN</label>
+    <input type="password" id="login-pin" placeholder="Enter PIN">
+    <button id="btn-login-check-pin-face">Next: Verify Face</button>
+
+    <!-- Step 2: Face (uses same camera) -->
+    <h3>Step 2: Face Verification</h3>
+    <button id="btn-login-capture-face" disabled>Capture & Verify Face</button>
+
+    <!-- Step 3: Voice -->
+    <h3>Step 3: Voice Verification</h3>
+    <button id="btn-login-gen-phrase" disabled>Generate Sentence</button>
+    <div class="phrase-box" id="login-phrase-box">Your phrase will appear here</div>
+
+    <button id="btn-login-start-voice" disabled>Start Recording</button>
+    <button id="btn-login-stop-voice" disabled>Stop & Verify Voice</button>
+
+    <br>
+    <button onclick="backToHome()">Back</button>
+
+    <h3>Result</h3>
+    <pre id="result-box"></pre>
+  </div>
+</div>
+
+<script>
+
+
+// SCREEN MANAGEMENT
+
+function showScreen(name) {
+  document.getElementById("screen-home").classList.remove("visible");
+  document.getElementById("screen-register").classList.remove("visible");
+  document.getElementById("screen-login").classList.remove("visible");
+
+  if (name === "home") {
+    document.getElementById("screen-home").classList.add("visible");
+  } else if (name === "register") {
+    document.getElementById("screen-register").classList.add("visible");
+  } else if (name === "login") {
+    document.getElementById("screen-login").classList.add("visible");
+  }
+}
+
+function backToHome() {
+  showScreen("home");
+  document.getElementById("result-box").textContent = "";
+}
+
+
+// CAMERA SETUP
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+async function startCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+}
+startCamera();
+
+function snapshotBase64() {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0);
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
+// RANDOM PHRASE GENERATOR
+
+const WORDS = [
+  "sunrise","ocean","galaxy","forest","desert","future",
+  "signal","moment","silver","Haddad","coffee","energy",
+  "pixel","neural","wisdom","quantum","Nasser","echo"
+];
+
+function randomPhrase() {
+  const pick = () => WORDS[Math.floor(Math.random() * WORDS.length)];
+  return `${pick()} ${pick()} ${pick()}`;
+}
+
+// TRUE WAV RECORDER (PCM 16-bit, 16kHz)
+
+let audioCtx;
+let micStream;
+let scriptNode;
+let pcmChunks = [];
+let currentVoiceMode = null; // "reg" or "login"
+
+async function startWavRecording(mode) {
+  currentVoiceMode = mode;
+  pcmChunks = [];
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)({
+    sampleRate: 16000
+  });
+
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const source = audioCtx.createMediaStreamSource(micStream);
+
+  scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
+  source.connect(scriptNode);
+  scriptNode.connect(audioCtx.destination);
+
+  scriptNode.onaudioprocess = (e) => {
+    const input = e.inputBuffer.getChannelData(0);
+    pcmChunks.push(new Float32Array(input));
+  };
+
+  console.log("Recording WAV...");
+}
+
+function stopWavRecording() {
+  scriptNode.disconnect();
+  micStream.getTracks().forEach(t => t.stop());
+  audioCtx.close();
+
+  const wavBlob = encodeWAV(pcmChunks, 16000);
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    const base64 = reader.result; 
+    if (currentVoiceMode === "reg") {
+      sendRegisterVoice(base64);
+    } else if (currentVoiceMode === "login") {
+      sendLoginVoice(base64);
+    }
+  };
+  reader.readAsDataURL(wavBlob);
+}
+
+function encodeWAV(buffers, sampleRate) {
+  let totalSamples = buffers.reduce((a, b) => a + b.length, 0);
+  let pcm16 = new Int16Array(totalSamples);
+
+  let offset = 0;
+  for (let buf of buffers) {
+    for (let i = 0; i < buf.length; i++, offset++) {
+      let s = Math.max(-1, Math.min(1, buf[i]));
+      pcm16[offset] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+  }
+
+  const header = new ArrayBuffer(44);
+  const dv = new DataView(header);
+
+  function writeString(view, offset, str) {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  }
+
+  writeString(dv, 0, "RIFF");
+  dv.setUint32(4, 36 + pcm16.length * 2, true);
+  writeString(dv, 8, "WAVE");
+  writeString(dv, 12, "fmt ");
+  dv.setUint32(16, 16, true);
+  dv.setUint16(20, 1, true);
+  dv.setUint16(22, 1, true);
+  dv.setUint32(24, sampleRate, true);
+  dv.setUint32(28, sampleRate * 2, true);
+  dv.setUint16(32, 2, true);
+  dv.setUint16(34, 16, true);
+  writeString(dv, 36, "data");
+  dv.setUint32(40, pcm16.length * 2, true);
+
+  return new Blob([header, pcm16], { type: "audio/wav" });
+}
+
+// REGISTERATION FLOW
+
+let regFaceCount = 0;
+let regVoiceSaved = false;
+
+document.getElementById("btn-reg-gen-phrase").onclick = () => {
+  document.getElementById("reg-phrase-box").textContent = randomPhrase();
+};
+
+document.getElementById("btn-reg-capture-face").onclick = async () => {
+  const username = document.getElementById("reg-username").value.trim();
+  const pin = document.getElementById("reg-pin").value.trim();
+  if (!username || !pin) {
+    alert("Enter username and PIN first.");
+    return;
+  }
+
+  const img = snapshotBase64();
+  const res = await fetch("/register", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ username, pin, image: img })
+  });
+
+  const j = await res.json();
+  if (j.error) {
+    alert("Error: " + j.error);
+  } else {
+    regFaceCount++;
+    document.getElementById("reg-face-count").textContent = regFaceCount;
+  }
+};
+
+document.getElementById("btn-reg-start-voice").onclick = async () => {
+  const username = document.getElementById("reg-username").value.trim();
+  const pin = document.getElementById("reg-pin").value.trim();
+  if (!username || !pin) {
+    alert("Enter username and PIN first.");
+    return;
+  }
+  if (document.getElementById("reg-phrase-box").textContent.includes("Your phrase")) {
+    alert("Generate a sentence first.");
+    return;
+  }
+
+  alert("Recording voice… Speak the sentence, then click Stop.");
+  document.getElementById("btn-reg-start-voice").disabled = true;
+  document.getElementById("btn-reg-stop-voice").disabled = false;
+  await startWavRecording("reg");
+};
+
+document.getElementById("btn-reg-stop-voice").onclick = () => {
+  document.getElementById("btn-reg-stop-voice").disabled = true;
+  stopWavRecording(); // will call sendRegisterVoice()
+};
+
+async function sendRegisterVoice(audioBase64) {
+  const username = document.getElementById("reg-username").value.trim();
+  const pin = document.getElementById("reg-pin").value.trim();
+
+  const res = await fetch("/register_voice", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ username, pin, audio: audioBase64 })
+  });
+
+  const j = await res.json();
+  if (j.error) {
+    alert("Voice error: " + j.error);
+    document.getElementById("btn-reg-start-voice").disabled = false;
+  } else {
+    alert("Voice saved successfully.");
+    regVoiceSaved = true;
+    document.getElementById("btn-reg-start-voice").disabled = false;
+  }
+}
+
+// Submit registration: automatically build embeddings + return home
+document.getElementById("btn-reg-submit").onclick = async () => {
+  const username = document.getElementById("reg-username").value.trim();
+  const pin = document.getElementById("reg-pin").value.trim();
+
+  if (!username || !pin) {
+    alert("Enter username and PIN.");
+    return;
+  }
+  if (regFaceCount === 0) {
+    alert("Capture at least 1 face photo.");
+    return;
+  }
+  if (!regVoiceSaved) {
+    alert("Record and save voice before submitting.");
+    return;
+  }
+
+  // Build embeddings only for this user
+  const res = await fetch("/build_embeddings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username })
+  });
+  const j = await res.json();
+
+  alert("Registration complete.\nEmbeddings: " + JSON.stringify(j, null, 2));
+
+  // Reset registration state
+  regFaceCount = 0;
+  regVoiceSaved = false;
+  document.getElementById("reg-face-count").textContent = "0";
+  document.getElementById("reg-username").value = "";
+  document.getElementById("reg-pin").value = "";
+  document.getElementById("reg-phrase-box").textContent = "Your phrase will appear here";
+
+  // Back to home
+  backToHome();
+};
+
+// LOGIN FLOW
+
+let loginUsername = null;
+
+document.getElementById("btn-login-check-pin-face").onclick = () => {
+  // This button just enables face capture; *** real PIN check happens with face POST ***
+  const pin = document.getElementById("login-pin").value.trim();
+  if (!pin) {
+    alert("Enter PIN first.");
+    return;
+  }
+  document.getElementById("btn-login-capture-face").disabled = false;
+};
+
+document.getElementById("btn-login-capture-face").onclick = async () => {
+  const pin = document.getElementById("login-pin").value.trim();
+  if (!pin) {
+    alert("Enter PIN first.");
+    return;
+  }
+
+  const img = snapshotBase64();
+  const res = await fetch("/verify", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ pin, image: img })
+  });
+  const j = await res.json();
+  document.getElementById("result-box").textContent = JSON.stringify(j, null, 2);
+
+  if (j.locked) {
+    alert("Too many attempts. Going back to home.");
+    backToHome();
+    return;
+  }
+
+  if (j.error) {
+    alert("Error: " + j.error);
+    return;
+  }
+
+  if (!j.face_verified) {
+    alert("Face mismatch. Attempts left: " + j.remaining);
+    return;
+  }
+
+  // Face success
+  loginUsername = j.username;
+  alert("Face verified for user: " + loginUsername);
+
+  // Enable voice step
+  document.getElementById("btn-login-gen-phrase").disabled = false;
+  document.getElementById("btn-login-start-voice").disabled = false;
+};
+
+document.getElementById("btn-login-gen-phrase").onclick = () => {
+  document.getElementById("login-phrase-box").textContent = randomPhrase();
+};
+
+document.getElementById("btn-login-start-voice").onclick = async () => {
+  const pin = document.getElementById("login-pin").value.trim();
+  if (!pin) {
+    alert("Enter PIN first.");
+    return;
+  }
+  if (document.getElementById("login-phrase-box").textContent.includes("Your phrase")) {
+    alert("Generate a sentence first.");
+    return;
+  }
+
+  alert("Recording voice… Speak the sentence, then click Stop.");
+  document.getElementById("btn-login-start-voice").disabled = true;
+  document.getElementById("btn-login-stop-voice").disabled = false;
+  await startWavRecording("login");
+};
+
+document.getElementById("btn-login-stop-voice").onclick = () => {
+  document.getElementById("btn-login-stop-voice").disabled = true;
+  stopWavRecording(); // will call sendLoginVoice()
+};
+
+async function sendLoginVoice(audioBase64) {
+  const pin = document.getElementById("login-pin").value.trim();
+
+  const res = await fetch("/verify_voice", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ pin, audio: audioBase64 })
+  });
+
+  const j = await res.json();
+  document.getElementById("result-box").textContent = JSON.stringify(j, null, 2);
+
+  if (j.locked) {
+    alert("Too many attempts. Going back to home.");
+    backToHome();
+    return;
+  }
+
+  if (j.error) {
+    alert("Voice error: " + j.error);
+    document.getElementById("btn-login-start-voice").disabled = false;
+    return;
+  }
+
+  if (j.mfa_success) {
+    window.location.href = "/congrats.html";
+  } else {
+    alert("Voice mismatch. Attempts left: " + j.remaining);
+    document.getElementById("btn-login-start-voice").disabled = false;
+  }
+}
+</script>
+
+</body>
+</html>
